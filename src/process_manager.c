@@ -1,11 +1,19 @@
 #include "process_manager.h"
 
+#include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/wait.h>
 
 static Worker workers[MAX_WORKERS];
+
+static int shutting_down = 0;
+
+void request_process_shutdown(void)
+{
+    shutting_down = 1;
+}
 
 int start_worker(int worker_id)
 {
@@ -90,8 +98,9 @@ void check_terminated_workers(void)
                 unexpected = 1;
             }
 
-            if (unexpected &&
-                workers[i].restart_count < MAX_RESTARTS)
+	if (unexpected &&
+    	    !shutting_down &&
+   	    workers[i].restart_count < MAX_RESTARTS)
             {
                 workers[i].restart_count++;
 
@@ -107,7 +116,7 @@ void check_terminated_workers(void)
                             i + 1);
                 }
             }
-            else if (unexpected)
+            else if (unexpected && !shutting_down)
             {
                 printf("Worker %d restart limit reached!\n",
                        i + 1);
@@ -119,3 +128,28 @@ void check_terminated_workers(void)
 
  }
 
+void terminate_workers(void)
+{
+    request_process_shutdown();
+
+    for (int i = 0; i < MAX_WORKERS; i++)
+    {
+        if (workers[i].is_running && workers[i].pid > 0)
+        {
+            kill(workers[i].pid, SIGTERM);
+        }
+    }
+}
+
+void reap_workers(void)
+{
+    for (int i = 0; i < MAX_WORKERS; i++)
+    {
+        if (workers[i].pid > 0)
+        {
+            waitpid(workers[i].pid, NULL, 0);
+            workers[i].pid = 0;
+            workers[i].is_running = 0;
+        }
+    }
+}

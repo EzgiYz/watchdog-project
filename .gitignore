@@ -17,3 +17,8 @@
 # Debug files
 core
 core.*
+
+/test_periodic
+/test_periodic_restart
+/test_shutdown
+/test_shutdown_restart
