@@ -137,68 +137,76 @@ const Worker *get_workers(void)
 
 void check_terminated_workers(void)
 {
-    int status;
-    pid_t pid;
-
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+    for (int i = 0; i < MAX_WORKERS; i++)
     {
-        for (int i = 0; i < MAX_WORKERS; i++)
+        if (!workers[i].is_running || workers[i].pid <= 0)
+            continue;
+
+        int status;
+        pid_t pid;
+
+        do
         {
-            if (workers[i].pid != pid)
-                continue;
-
-            workers[i].is_running = 0;
-            workers[i].pid = 0;
-
-            int unexpected = 0;
-
-            if (WIFEXITED(status))
-            {
-                int exit_code = WEXITSTATUS(status);
-
-                printf("Worker %d exited with code %d\n",
-                       i + 1, exit_code);
-
-                unexpected = (exit_code != 0);
-            }
-            else if (WIFSIGNALED(status))
-            {
-                printf("Worker %d terminated by signal %d\n",
-                       i + 1, WTERMSIG(status));
-
-                unexpected = 1;
-            }
-
-	if (unexpected &&
-    	    !shutting_down &&
-   	    workers[i].restart_count < MAX_RESTARTS)
-            {
-                workers[i].restart_count++;
-
-                printf("Restarting Worker %d (%d/%d)\n",
-                       i + 1,
-                       workers[i].restart_count,
-                       MAX_RESTARTS);
-
-                if (start_worker(i) != 0)
-                {
-                    fprintf(stderr,
-                            "Failed to restart Worker %d\n",
-                            i + 1);
-                }
-            }
-            else if (unexpected && !shutting_down)
-            {
-                printf("Worker %d restart limit reached!\n",
-                       i + 1);
-            }
-
-            break;
+            pid = waitpid(workers[i].pid, &status, WNOHANG);
         }
-     }
+        while (pid == -1 && errno == EINTR);
 
- }
+        if (pid == 0)
+            continue;
 
+        if (pid == -1)
+        {
+            perror("waitpid failed");
+            continue;
+        }
+
+        workers[i].is_running = 0;
+        workers[i].pid = 0;
+
+        int unexpected = 0;
+
+        if (WIFEXITED(status))
+        {
+            int exit_code = WEXITSTATUS(status);
+
+            printf("Worker %d exited with code %d\n",
+                   i + 1, exit_code);
+
+            unexpected = (exit_code != 0);
+        }
+        else if (WIFSIGNALED(status))
+        {
+            printf("Worker %d terminated by signal %d\n",
+                   i + 1, WTERMSIG(status));
+
+            unexpected = 1;
+        }
+
+        if (unexpected &&
+            !shutting_down &&
+            workers[i].restart_count < MAX_RESTARTS)
+        {
+            workers[i].restart_count++;
+
+            printf("Restarting Worker %d (%d/%d)\n",
+                   i + 1,
+                   workers[i].restart_count,
+                   MAX_RESTARTS);
+
+            if (start_worker(i) != 0)
+            {
+                fprintf(stderr,
+                        "Failed to restart Worker %d\n",
+                        i + 1);
+            }
+        }
+        else if (unexpected && !shutting_down)
+        {
+            printf("Worker %d restart limit reached!\n",
+                   i + 1);
+        }
+    }
+}
 void terminate_workers(void)
 {
     request_process_shutdown();
