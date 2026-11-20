@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
-#include <time.h>
 
 static volatile sig_atomic_t check_requested = 0;
 
@@ -16,6 +15,9 @@ static void alarm_handler(int signo)
 int main(void)
 {
     struct sigaction sa = {0};
+    sigset_t block_mask;
+    sigset_t old_mask;
+
     sa.sa_handler = alarm_handler;
     sigemptyset(&sa.sa_mask);
 
@@ -25,8 +27,20 @@ int main(void)
         return 1;
     }
 
-    if (start_workers() != 0)
+    sigemptyset(&block_mask);
+    sigaddset(&block_mask, SIGALRM);
+
+    if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) == -1)
+    {
+        perror("sigprocmask");
         return 1;
+    }
+
+    if (start_workers() != 0)
+    {
+        printf("FAILED: Workers could not start!\n");
+        return 1;
+    }
 
     const Worker *workers = get_workers();
     pid_t original_pid = workers[0].pid;
@@ -34,10 +48,20 @@ int main(void)
     printf("\nOriginal Worker 1 PID: %ld\n",
            (long)original_pid);
 
+    fflush(stdout);
+
     sleep(1);
 
     printf("Killing Worker 1...\n");
-    kill(original_pid, SIGKILL);
+
+    if (kill(original_pid, SIGKILL) == -1)
+    {
+        perror("kill");
+        terminate_workers();
+        reap_workers();
+        sigprocmask(SIG_SETMASK, &old_mask, NULL);
+        return 1;
+    }
 
     alarm(1);
 
@@ -46,7 +70,9 @@ int main(void)
     for (int attempt = 0; attempt < 3; attempt++)
     {
         while (!check_requested)
-            pause();
+        {
+            sigsuspend(&old_mask);
+        }
 
         check_requested = 0;
 
@@ -72,6 +98,8 @@ int main(void)
 
     terminate_workers();
     reap_workers();
+
+    sigprocmask(SIG_SETMASK, &old_mask, NULL);
 
     if (!success)
     {

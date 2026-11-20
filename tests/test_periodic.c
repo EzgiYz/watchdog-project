@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
-#include <time.h>
+#include <stdlib.h>
 
 static volatile sig_atomic_t check_requested = 0;
 
@@ -17,12 +17,25 @@ int main(void)
 {
     struct sigaction sa = {0};
 
+    sigset_t block_mask;
+    sigset_t old_mask;
+
     sa.sa_handler = alarm_handler;
     sigemptyset(&sa.sa_mask);
 
     if (sigaction(SIGALRM, &sa, NULL) == -1)
     {
         perror("sigaction");
+        return 1;
+    }
+
+    sigemptyset(&block_mask);
+    sigaddset(&block_mask, SIGALRM);
+
+    // Block SIGALRM before checking the flag.
+    if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) == -1)
+    {
+        perror("sigprocmask");
         return 1;
     }
 
@@ -35,31 +48,36 @@ int main(void)
     printf("Periodic monitoring started.\n");
     fflush(stdout);
 
-    alarm(1);
-
     int checks = 0;
+
+    alarm(1);
 
     while (checks < 5)
     {
-        pause();
-
-        if (check_requested)
+        // Atomically unblock signals and wait.
+        while (!check_requested)
         {
-            check_requested = 0;
-
-            printf("Periodic worker check %d\n", checks + 1);
-            check_terminated_workers();
-
-            checks++;
-
-            alarm(1);
+            sigsuspend(&old_mask);
         }
+
+        check_requested = 0;
+
+        printf("Periodic worker check %d\n", checks + 1);
+
+        check_terminated_workers();
+
+        checks++;
+
+        if (checks < 5)
+            alarm(1);
     }
 
-    printf("Stopping workers...\n");
+    alarm(0);
 
     terminate_workers();
     reap_workers();
+
+    sigprocmask(SIG_SETMASK, &old_mask, NULL);
 
     printf("SUCCESS: Periodic monitoring completed!\n");
 
