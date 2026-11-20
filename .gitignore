@@ -22,3 +22,5 @@ core.*
 /test_periodic_restart
 /test_shutdown
 /test_shutdown_restart
+/test_exec_failure
+/worker_backup

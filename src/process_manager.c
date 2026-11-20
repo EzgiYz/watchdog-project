@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include <errno.h>
+#include <fcntl.h>
 
 static Worker workers[MAX_WORKERS];
 
@@ -17,23 +19,77 @@ void request_process_shutdown(void)
 
 int start_worker(int worker_id)
 {
-    if (worker_id < 0 || worker_id >= MAX_WORKERS)
+    if (worker_id < 0 || worker_id >= MAX_WORKERS ||
+        shutting_down)
         return -1;
+
+    int pipefd[2];
+
+    if (pipe(pipefd) == -1)
+    {
+        perror("pipe failed");
+        return -1;
+    }
+
+    int flags = fcntl(pipefd[1], F_GETFD);
+
+    if (flags == -1 ||
+        fcntl(pipefd[1], F_SETFD, flags | FD_CLOEXEC) == -1)
+    {
+        perror("fcntl failed");
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return -1;
+    }
 
     pid_t pid = fork();
 
     if (pid < 0)
     {
         perror("fork failed");
+        close(pipefd[0]);
+        close(pipefd[1]);
         return -1;
     }
 
     if (pid == 0)
     {
+        close(pipefd[0]);
+
         execl("./worker", "worker", (char *)NULL);
 
-        perror("exec failed");
+        int exec_error = errno;
+        (void)write(pipefd[1], &exec_error, sizeof(exec_error));
         _exit(127);
+    }
+
+    close(pipefd[1]);
+
+    int exec_error = 0;
+    ssize_t result;
+
+    do
+    {
+        result = read(pipefd[0], &exec_error, sizeof(exec_error));
+    }
+    while (result == -1 && errno == EINTR);
+
+    close(pipefd[0]);
+
+    if (result != 0)
+    {
+        if (result > 0)
+        {
+            errno = exec_error;
+            perror("exec failed");
+        }
+        else
+        {
+            perror("exec status read failed");
+        }
+
+        waitpid(pid, NULL, 0);
+        return -1;
     }
 
     workers[worker_id].pid = pid;
@@ -45,15 +101,30 @@ int start_worker(int worker_id)
 
     return 0;
 }
-
 int start_workers(void)
 {
+    shutting_down = 0;
+
     for (int i = 0; i < MAX_WORKERS; i++)
     {
+        workers[i].pid = 0;
+        workers[i].worker_id = i;
         workers[i].restart_count = 0;
+        workers[i].is_running = 0;
+    }
 
+    for (int i = 0; i < MAX_WORKERS; i++)
+    {
         if (start_worker(i) != 0)
+        {
+            fprintf(stderr,
+                    "Failed to start Worker %d\n", i + 1);
+
+            terminate_workers();
+            reap_workers();
+
             return -1;
+        }
     }
 
     return 0;
