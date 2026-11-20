@@ -155,10 +155,23 @@ void check_terminated_workers(void)
             continue;
 
         if (pid == -1)
-        {
-            perror("waitpid failed");
-            continue;
-        }
+{
+    if (errno == ECHILD)
+    {
+        fprintf(stderr,
+                "Worker %d is no longer a waitable child\n",
+                i + 1);
+
+        workers[i].pid = 0;
+        workers[i].is_running = 0;
+    }
+    else
+    {
+        perror("waitpid failed");
+    }
+
+    continue;
+}
 
         workers[i].is_running = 0;
         workers[i].pid = 0;

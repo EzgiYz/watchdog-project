@@ -24,3 +24,5 @@ core.*
 /test_shutdown_restart
 /test_exec_failure
 /worker_backup
+
+/test_echild
