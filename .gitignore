@@ -1,0 +1,28 @@
+# Compiled files
+*.o
+*.out
+
+# Executables
+/worker
+/test_process
+/test_restart
+/test_termination
+/watchdog
+
+# Editor temporary files
+*.swp
+*.swo
+*~
+
+# Debug files
+core
+core.*
+
+/test_periodic
+/test_periodic_restart
+/test_shutdown
+/test_shutdown_restart
+/test_exec_failure
+/worker_backup
+
+/test_echild
