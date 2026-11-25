@@ -1,13 +1,29 @@
 # Compiled files
 *.o
 *.out
+*.d
 
 # Executables
+/watchdog
 /worker
+/worker_backup
+
+# Test executables
 /test_process
 /test_restart
 /test_termination
-/watchdog
+/test_periodic
+/test_periodic_restart
+/test_shutdown
+/test_shutdown_restart
+/test_exec_failure
+/test_echild
+
+# Log files
+*.log
+
+# IDE configuration
+.vscode/
 
 # Editor temporary files
 *.swp
@@ -17,12 +33,3 @@
 # Debug files
 core
 core.*
-
-/test_periodic
-/test_periodic_restart
-/test_shutdown
-/test_shutdown_restart
-/test_exec_failure
-/worker_backup
-
-/test_echild
